@@ -1165,6 +1165,39 @@ void hydro<Mesh>::UpdateFluidProperties() {
 
   fc_conductivity = GetVolumeAveraged(v_conductivity);
   fc_temperature_source.Reinit(mesh, 0.);
+
+  // Stream function psi
+  using Expr = solver::Expression<Scal, IdxCell, 5>; // equation
+  geom::FieldCell<Expr> fc_system(mesh); // system of equations
+  for (auto idxcell : mesh.Cells()) {
+    Expr& eqn = fc_system[idxcell];
+    for (size_t i = 0; i < mesh.GetNumNeighbourFaces(idxcell); ++i) {
+      IdxFace idxface = mesh.GetNeighbourFace(idxcell, i);
+
+      Expr derivative;
+      IdxCell cm = mesh.GetNeighbourCell(idxface, 0);
+      IdxCell cp = mesh.GetNeighbourCell(idxface, 1);
+      Scal r = mesh.GetCenter(cp).dist(mesh.GetCenter(cm));
+
+      // dpsi/dn = (psi_cp - psi_cm) / r
+      derivative.InsertTerm(1. / r, cp);
+      derivative.InsertTerm(-1. / r, cm);
+
+      Scal factor = mesh.GetOutwardFactor(idxcell, i);
+      // mesh.GetNormal(idxface) * factor --- outward normal to idxcell
+
+      eqn += derivative * factor * mesh.GetArea(idxface);
+    }
+    Scal vorticity = 1.; // put vorticity here instead of 1.
+    eqn.SetConstant(-vorticity * mesh.GetVolume(idxcell));
+  }
+
+  solver::GaussSeidel linear_solver(1e-6, 1000, 1.9);
+  fc_stream_function = linear_solver.Solve(fc_system);
+
+  // TODO: 1) define fc_stream_function
+  //       2) put vorticity where needed
+  //       3) add stream function output
 }
 
 template <class Mesh>
