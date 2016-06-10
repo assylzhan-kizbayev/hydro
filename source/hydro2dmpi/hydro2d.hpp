@@ -1169,30 +1169,49 @@ void hydro<Mesh>::UpdateFluidProperties() {
   // Stream function psi
   using Expr = solver::Expression<Scal, IdxCell, 5>; // equation
   geom::FieldCell<Expr> fc_system(mesh); // system of equations
+
+  // Stream function boundary conditions (zero value)
+  geom::MapFace<std::shared_ptr<ConditionFace>> mf_cond_shared;
+  geom::MapFace<ConditionFace*> mf_cond;
+  for (auto idxface : mesh.Faces()) {
+    if (!mesh.IsExcluded(idxface) && !mesh.IsInner(idxface)) {
+      mf_cond_shared[idxface] =
+          std::make_shared<ConditionFaceValueFixed<Scal>>(0.);
+    }
+  }
+  mf_cond = GetPointers(mf_cond_shared);
+
+  // Calc derivative
+  solver::DerivativeInnerFacePlain<Mesh, Expr>
+  derivative_inner(mesh);
+  solver::DerivativeBoundaryFacePlain<Mesh, Expr>
+  derivative_boundary(mesh, mf_cond);
+  geom::FieldFace<Expr> ff_derivarive(mesh);
+  for (auto idxface : mesh)
+    if (!mesh.IsExcluded(idxface)) {
+      if (mesh.IsInner(idxface)) {
+        ff_derivarive[idxface] = derivative_inner.GetExpression(idxface);
+      } else {
+        ff_derivarive[idxface] = derivative_boundary.GetExpression(idxface);
+      }
+    }
+  }
+
   for (auto idxcell : mesh.Cells()) {
     Expr& eqn = fc_system[idxcell];
     for (size_t i = 0; i < mesh.GetNumNeighbourFaces(idxcell); ++i) {
       IdxFace idxface = mesh.GetNeighbourFace(idxcell, i);
 
-      Expr derivative;
-      IdxCell cm = mesh.GetNeighbourCell(idxface, 0);
-      IdxCell cp = mesh.GetNeighbourCell(idxface, 1);
-      Scal r = mesh.GetCenter(cp).dist(mesh.GetCenter(cm));
-
-      // dpsi/dn = (psi_cp - psi_cm) / r
-      derivative.InsertTerm(1. / r, cp);
-      derivative.InsertTerm(-1. / r, cm);
-
       Scal factor = mesh.GetOutwardFactor(idxcell, i);
       // mesh.GetNormal(idxface) * factor --- outward normal to idxcell
 
-      eqn += derivative * factor * mesh.GetArea(idxface);
+      eqn += ff_derivarive[idxface] * factor * mesh.GetArea(idxface);
     }
     Scal vorticity = 1.; // put vorticity here instead of 1.
     eqn.SetConstant(-vorticity * mesh.GetVolume(idxcell));
   }
 
-  solver::GaussSeidel linear_solver(1e-6, 1000, 1.9);
+  solver::GaussSeidel linear_solver(0, 1000, 1.9);
   fc_stream_function = linear_solver.Solve(fc_system);
 
   // TODO: 1) define fc_stream_function
