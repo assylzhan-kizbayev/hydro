@@ -102,6 +102,49 @@ class KineticsSteadyRadiation : public Kinetics<Mesh> {
 };
 
 
+template <class Mesh>
+class KineticsSteadyRadiationTemperature : public Kinetics<Mesh> {
+	using IdxCell = geom::IdxCell;
+	using Scal = typename Mesh::Scal;
+	const Mesh& mesh;
+	Scal rate_;
+	std::vector<Scal> v_molar_mass_;
+	const size_t num_phases_;
+	const geom::FieldCell<Scal>& fc_radiation_;
+	const geom::FieldCell<Scal>& fc_temperature_source_;
+public:
+	KineticsSteadyRadiationTemperature(
+		Scal rate, const std::vector<Scal>& v_molar_mass,
+		const geom::FieldCell<Scal>& fc_radiation,
+		const geom::FieldCell<Scal>& fc_temperature_source,
+		const Mesh& mesh)
+		: mesh(mesh)
+		, rate_(rate)
+		, v_molar_mass_(v_molar_mass)
+		, num_phases_(v_molar_mass_.size())
+		, fc_radiation_(fc_radiation)
+		, fc_temperature_source_(fc_temperature_source)
+	{}
+	std::vector<Scal> GetReactionRate(
+		IdxCell idxcell,
+		const std::vector<Scal>& v_molar_concentration) override {
+		std::vector<Scal> res(num_phases_);
+
+		// First phase converts to the others
+		res[0] = -rate_ * v_molar_concentration[0] * fc_radiation_[idxcell] * fc_temperature_source_[idxcell];
+
+		Scal raw_mass_rate = res[0] * v_molar_mass_[0];
+		Scal product_mass_rate = -raw_mass_rate / (num_phases_ - 1);
+
+		for (size_t i = 1; i < num_phases_; ++i) {
+			res[i] = product_mass_rate / v_molar_mass_[i];
+		}
+
+		return res;
+	}
+};
+
+
 
 template <class Mesh>
 class KineticsNadirov : public Kinetics<Mesh> {

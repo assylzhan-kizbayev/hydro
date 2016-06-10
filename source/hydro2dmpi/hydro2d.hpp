@@ -976,7 +976,12 @@ void hydro<Mesh>::CalcPhasesMassSource() {
     chem_solver = std::make_shared<solver::
         KineticsSteadyRadiation<Mesh>>(
             P("intensity"), v_molar_mass, fc_radiation, mesh);
-  } else {
+  } else if (chemistry == "steady_radiation_temperature") {
+	  chem_solver = std::make_shared<solver::
+		  KineticsSteadyRadiationTemperature<Mesh>>(
+			  P("intensity"), v_molar_mass, fc_radiation, heat_solver->GetTemperature(), mesh);
+  }
+  else {
     // TODO: Quotemarks string wrapper function
     std::runtime_error(
         "UpdateFluidProperties: Unknown chemistry = '" + chemistry + "'");
@@ -1165,7 +1170,19 @@ void hydro<Mesh>::UpdateFluidProperties() {
   CalcRadiation();
 
   fc_conductivity = GetVolumeAveraged(v_conductivity);
-  fc_temperature_source.Reinit(mesh, 0.);
+
+  // Temperature
+  //fc_temperature_source.Reinit(mesh, 0.);
+
+  const double k_temp = P_double["k_radiation_heat_source"];
+  fc_temperature_source.Reinit(mesh);
+  for(auto idxcell : mesh.Cells())
+  { 
+	  Scal new_temperature = k_temp * fc_radiation[idxcell];
+	  fc_temperature_source[idxcell] = new_temperature;
+  }
+
+	
 }
 
 template <class Mesh>
